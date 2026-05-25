@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.2
+// @version      2.3
 // @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄
 // @author       ssarcandy
 // @license      MIT
