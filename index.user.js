@@ -106,6 +106,15 @@
         copyLogBtn.textContent = `📋 複製通知紀錄 (${alertLogHistory.length})`;
     };
 
+    // 在下拉選單新增「1000」筆選項
+    waitForElement('select', null, (selectEl) => {
+        if (!selectEl.querySelector('option[value="1000"]')) {
+            const newOption = document.createElement('option');
+            newOption.value = '1000';
+            newOption.textContent = '1000';
+            selectEl.appendChild(newOption);
+        }
+    });
 
     // ==========================================
     // 模組 B：僅在 viewlog 頁面執行的表格優化
@@ -139,7 +148,7 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // 功能 B-1：新增「展開全部」按鈕
+    // 新增「展開全部」按鈕
     const btnSelector = 'button.dt-button[aria-controls="paper-table"]';
     const btnCondition = (el) => el.textContent.includes('下載成EXCEL檔');
 
@@ -165,16 +174,5 @@
         excelBtn.insertAdjacentElement('afterend', expandBtn);
     });
 
-    // 功能 B-2：在下拉選單新增「1000」筆選項
-    const selectSelector = 'select[name="paper-table_length"]';
-
-    waitForElement(selectSelector, null, (selectEl) => {
-        if (!selectEl.querySelector('option[value="1000"]')) {
-            const newOption = document.createElement('option');
-            newOption.value = '1000';
-            newOption.textContent = '1000';
-            selectEl.appendChild(newOption);
-        }
-    });
 
 })();
