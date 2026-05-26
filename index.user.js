@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.3
-// @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄
+// @version      2.4
+// @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換
 // @author       ssarcandy
 // @license      MIT
 // @match        https://www.stockhouse.com.tw/*
@@ -13,7 +13,7 @@
 // @require      https://cdn.jsdelivr.net/npm/simple-notify@1.0.4/dist/simple-notify.min.js
 // ==/UserScript==
 
-(function() {
+(function () {
     'use strict';
 
     // 用來儲存所有被攔截的 alert 訊息
@@ -79,7 +79,7 @@
     });
 
     // 2. 覆寫 window.alert
-    unsafeWindow.alert = function(message) {
+    unsafeWindow.alert = function (message) {
         // 顯示通知
         new Notify({
             status: 'warning',
@@ -106,23 +106,33 @@
         copyLogBtn.textContent = `📋 複製通知紀錄 (${alertLogHistory.length})`;
     };
 
-    // 在下拉選單新增「1000」筆選項
-    waitForElement('select', null, (selectEl) => {
-        if (!selectEl.querySelector('option[value="1000"]')) {
-            const newOption = document.createElement('option');
-            newOption.value = '1000';
-            newOption.textContent = '1000';
-            selectEl.appendChild(newOption);
-        }
-    });
+    // ==========================================
+    // 工具函數
+    // ==========================================
 
-    // ==========================================
-    // 模組 B：僅在 viewlog 頁面執行的表格優化
-    // ==========================================
-    if (!window.location.pathname.includes('viewlog.php')) return;
+    function sendXHR(method, url, body = null) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            xhr.open(method, url, true);
+            if (method === 'POST') {
+                xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded; charset=UTF-8');
+            }
+            xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) {
+                    resolve(xhr.responseText);
+                } else {
+                    reject(new Error(`HTTP ${xhr.status}: ${xhr.statusText}`));
+                }
+            };
+            xhr.onerror = () => reject(new Error('Network Error'));
+            xhr.send(body);
+        });
+    }
 
     // 建立一個通用的等待函數
     function waitForElement(selector, condition, callback) {
+
         const checkElements = () => {
             const elements = document.querySelectorAll(selector);
             for (let el of elements) {
@@ -148,31 +158,201 @@
         observer.observe(document.body, { childList: true, subtree: true });
     }
 
-    // 新增「展開全部」按鈕
-    const btnSelector = 'button.dt-button[aria-controls="paper-table"]';
-    const btnCondition = (el) => el.textContent.includes('下載成EXCEL檔');
+    // ==========================================
+    // 全站通用優化
+    // ==========================================
 
-    waitForElement(btnSelector, btnCondition, (excelBtn) => {
-        const expandBtn = document.createElement('button');
-        expandBtn.className = 'dt-button';
-        expandBtn.setAttribute('tabindex', '0');
-        expandBtn.setAttribute('aria-controls', 'paper-table');
-        expandBtn.setAttribute('type', 'button');
-        expandBtn.style.marginLeft = '5px';
+    // 在下拉選單新增「1000」筆選項
+    waitForElement('select', null, (selectEl) => {
+        if (!selectEl.querySelector('option[value="1000"]')) {
+            const newOption = document.createElement('option');
+            newOption.value = '1000';
+            newOption.textContent = '1000';
+            selectEl.appendChild(newOption);
+        }
+    });
 
-        const span = document.createElement('span');
-        span.textContent = '展開全部';
-        expandBtn.appendChild(span);
+    // ==========================================
+    // 模組 B：僅在 viewlog 頁面執行的表格優化
+    // ==========================================
+    if (window.location.pathname.includes('viewlog.php')) {
+        // 新增「展開全部」按鈕
+        const btnSelector = 'button.dt-button[aria-controls="paper-table"]';
+        const btnCondition = (el) => el.textContent.includes('下載成EXCEL檔');
 
-        expandBtn.addEventListener('click', function() {
-            const tdElements = Array.from(document.querySelectorAll('td.details-control'));
-            for (let element of tdElements) {
-                element.click();
+        waitForElement(btnSelector, btnCondition, (excelBtn) => {
+            const expandBtn = document.createElement('button');
+            expandBtn.className = 'dt-button';
+            expandBtn.setAttribute('tabindex', '0');
+            expandBtn.setAttribute('aria-controls', 'paper-table');
+            expandBtn.setAttribute('type', 'button');
+            expandBtn.style.marginLeft = '5px';
+
+            const span = document.createElement('span');
+            span.textContent = '展開全部';
+            expandBtn.appendChild(span);
+
+            expandBtn.addEventListener('click', function () {
+                const tdElements = Array.from(document.querySelectorAll('td.details-control'));
+                for (let element of tdElements) {
+                    element.click();
+                }
+            });
+
+            excelBtn.insertAdjacentElement('afterend', expandBtn);
+        });
+    }
+
+    // ==========================================
+    // 模組 C：子帳戶持股狀態切換 (僅 z=5)
+    // ==========================================
+    if (window.location.search.includes('z=5')) {
+
+        let subaccountMapping = {};
+        let mappingLoaded = false;
+
+        // 獲取子帳戶名稱與 ID 的對照表
+        async function fetchSubaccountMapping() {
+            try {
+                const text = await sendXHR('GET', 'https://www.stockhouse.com.tw/action.php');
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(text, 'text/html');
+
+                doc.querySelectorAll('a[href*="keep_id="]').forEach(a => {
+                    const url = new URL(a.href, window.location.origin);
+                    const keepId = url.searchParams.get('keep_id');
+                    const name = url.searchParams.get('name') || a.textContent.trim();
+                    if (keepId && name) {
+                        subaccountMapping[name] = keepId;
+                    }
+                });
+                mappingLoaded = true;
+                console.log('[Stockhouse Helper] 子帳戶對照表已載入:', subaccountMapping);
+
+                // 載入完成後，檢查頁面上是否已有按鈕
+                document.querySelectorAll('h2').forEach(h => {
+                    if (h.textContent.includes('持有該公司的子帳號如下')) {
+                        handleInjectedContent(h.parentElement);
+                    }
+                });
+            } catch (err) {
+                console.error('[Stockhouse Helper] 無法獲取子帳戶對照表:', err);
+            }
+        }
+
+        fetchSubaccountMapping();
+
+        // 監控 DOM 變化，捕捉 getkeepac.php 載入的內容
+        const observer = new MutationObserver((mutations) => {
+            if (!mappingLoaded) return;
+            for (const mutation of mutations) {
+                for (const node of mutation.addedNodes) {
+                    if (node.nodeType === 1) {
+                        handleInjectedContent(node);
+                    }
+                }
             }
         });
 
-        excelBtn.insertAdjacentElement('afterend', expandBtn);
-    });
+        observer.observe(document.body, { childList: true, subtree: true });
+
+        function handleInjectedContent(container) {
+            // 檢查是否包含 getkeepac.php 的標題
+            const headers = container.querySelectorAll('h2');
+            let targetHeader = null;
+            for (const h of headers) {
+                if (h.textContent.includes('持有該公司的子帳號如下')) {
+                    targetHeader = h;
+                    break;
+                }
+            }
+
+            if (!targetHeader) {
+                if (container.tagName === 'H2' && container.textContent.includes('持有該公司的子帳號如下')) {
+                    targetHeader = container;
+                } else {
+                    return;
+                }
+            }
+
+            const parent = targetHeader.parentElement;
+            const buttons = parent.querySelectorAll('a.ui-btn');
+            if (buttons.length === 0) return;
+
+            const expandedTr = targetHeader.closest('tr');
+            if (!expandedTr) return;
+            const mainTr = expandedTr.previousElementSibling;
+            if (!mainTr) return;
+
+            let stockId = null;
+            const link = mainTr.querySelector('a[href*="stock="], a[href*="id="]');
+            if (link) {
+                try {
+                    const url = new URL(link.href, window.location.origin);
+                    stockId = url.searchParams.get('stock') || url.searchParams.get('id');
+                } catch (e) { }
+            }
+
+            if (!stockId) {
+                const cells = mainTr.querySelectorAll('td');
+                for (const td of cells) {
+                    const text = td.textContent.trim();
+                    if (/^\d{4,6}$/.test(text)) {
+                        stockId = text;
+                        break;
+                    }
+                }
+            }
+
+            if (!stockId) return;
+
+            buttons.forEach(btn => {
+                const name = btn.textContent.trim();
+                const keepId = subaccountMapping[name];
+
+                if (keepId) {
+                    btn.style.cursor = 'pointer';
+                    if (btn.dataset.helperHandled) return;
+                    btn.dataset.helperHandled = 'true';
+
+                    btn.addEventListener('click', async (e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+
+                        try {
+                            await sendXHR('POST', 'https://www.stockhouse.com.tw/setaddtolist.php', `id=${stockId}&keep_id=${keepId}`);
+
+                            // 重新獲取最新狀態並更新介面
+                            try {
+                                const refreshText = await sendXHR('POST', 'https://www.stockhouse.com.tw/getkeepac.php', `stockcode=${stockId}`);
+                                const parser = new DOMParser();
+                                const refreshDoc = parser.parseFromString(refreshText, 'text/html');
+                                
+                                // 找到展開列中的容器（通常是包含 targetHeader 的父層）
+                                const containerToUpdate = targetHeader.parentElement;
+                                if (containerToUpdate) {
+                                    containerToUpdate.innerHTML = refreshDoc.body.innerHTML;
+                                    // 重新處理新插入的內容（綁定事件）
+                                    handleInjectedContent(containerToUpdate);
+                                }
+                            } catch (refreshErr) {
+                                console.error('[Stockhouse Helper] Refresh error:', refreshErr);
+                                // 備案：點擊兩次 details-control
+                                const control = mainTr.querySelector('td.details-control');
+                                if (control) {
+                                    control.click();
+                                    setTimeout(() => control.click(), 200);
+                                }
+                            }
+                        } catch (err) {
+                            console.error('[Stockhouse Helper] Toggle error:', err);
+                            unsafeWindow.alert('發生錯誤: ' + err.message);
+                        }
+                    });
+                }
+            });
+        }
+    }
 
 
 })();
