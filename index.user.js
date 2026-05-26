@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.4
+// @version      2.5
 // @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換
 // @author       ssarcandy
 // @license      MIT
@@ -211,7 +211,7 @@
             btn.style.cursor = 'pointer';
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
-                toggleHolding(stockId, keepId, container, mainTr);
+                toggleHolding(stockId, keepId, expandedTr, mainTr);
             });
         });
     }
@@ -239,16 +239,18 @@
     /**
      * 切換持股狀態並刷新
      */
-    async function toggleHolding(stockId, keepId, container, mainTr) {
+    async function toggleHolding(stockId, keepId, expandedTr, mainTr) {
         try {
             await sendXHR('POST', 'https://www.stockhouse.com.tw/setaddtolist.php', `id=${stockId}&keep_id=${keepId}`);
             
             // 刷新內容
             try {
-                const html = await sendXHR('POST', 'https://www.stockhouse.com.tw/getkeepac.php', `id=${stockId}`);
-                const freshDoc = new DOMParser().parseFromString(html, 'text/html');
-                container.innerHTML = freshDoc.body.innerHTML;
-                handleHoldingList(container); // 重新綁定事件
+                const html = await sendXHR('POST', 'https://www.stockhouse.com.tw/getkeepac.php', `stockcode=${stockId}`);
+
+                if (expandedTr) {
+                    expandedTr.innerHTML = `<td colspan="6">${html}</td>`;
+                    handleHoldingList(expandedTr); // 重新綁定事件
+                }
             } catch (refreshErr) {
                 console.error('[Helper] Refresh failed:', refreshErr);
                 // 備案：手動開關
