@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.6
-// @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換
+// @version      2.8
+// @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換、帳務交易摘要分析
 // @author       ssarcandy
 // @license      MIT
 // @match        https://www.stockhouse.com.tw/*
@@ -184,6 +184,183 @@
         });
       });
       excelBtn.insertAdjacentElement('afterend', expandBtn);
+    });
+
+    // 3. 帳務查詢 (z=2)：分析交易摘要
+    if (window.location.search.includes('z=2')) {
+      waitForElement('#money-table_filter', null, (target) => {
+        const analyzeBtn = document.createElement('button');
+        analyzeBtn.className = 'dt-button';
+        analyzeBtn.innerHTML = '<span>分析交易摘要</span>';
+        analyzeBtn.style.marginLeft = '5px';
+        analyzeBtn.addEventListener('click', analyzeMoneyTransactions);
+        target.insertAdjacentElement('afterend', analyzeBtn);
+      });
+    }
+  }
+
+  /**
+   * 帳務交易分析邏輯
+   */
+  function analyzeMoneyTransactions() {
+    const table = unsafeWindow.$('#money-table').DataTable();
+    const data = table.rows({ search: 'applied' }).data();
+    
+    const summary = {};
+    const itemGroups = {};
+
+    const cleanText = (html) => {
+      const div = document.createElement('div');
+      div.innerHTML = html;
+      return (div.textContent || div.innerText || '').trim();
+    };
+
+    data.each((row) => {
+      const category = cleanText(row[0]);
+      const itemName = cleanText(row[2]);
+      const qty = parseInt(cleanText(row[3])) || 0;
+      const price = parseFloat(cleanText(row[4])) || 0;
+      let total = parseInt(cleanText(row[5])) || 0;
+
+      // 處理特定支出類別的正負號 (確保為負值)
+      const outflowCategories = ['支付站內費用', '提款', '超商取貨付款'];
+      if (outflowCategories.includes(category) && total > 0) {
+        total = -total;
+      }
+
+      // 類別統計
+      if (!summary[category]) summary[category] = { count: 0, totalAmount: 0 };
+      summary[category].count++;
+      summary[category].totalAmount += total;
+
+      // 套利分組 (同一品項)
+      if (!itemGroups[itemName]) itemGroups[itemName] = { buys: [], sells: [] };
+      if (category === '收購付款') {
+        itemGroups[itemName].buys.push({ qty, price, total });
+      } else if (category === '出售收款') {
+        itemGroups[itemName].sells.push({ qty, price, total });
+      }
+    });
+
+    // 格式化輸出 HTML
+    let html = `
+      <style>
+        .swal-tight-table td, .swal-tight-table th { padding: 4px 8px !important; line-height: 1.2 !important; font-size: 13px; }
+        .swal-tight-table h3 { margin: 15px 0 10px 0; }
+      </style>
+      <div style="text-align: left; font-size: 14px; max-height: 600px; overflow-y: auto; padding: 5px;">
+    `;
+    
+    // 1. 各類別總結
+    html += '<h3>📊 交易類別統計</h3>';
+    html += '<table id="swal-summary-table" class="display swal-tight-table" style="width:100%; border-collapse: collapse;" border="1">';
+    html += '<thead><tr style="background:#f2f2f2;"><th>類別</th><th>筆數</th><th>總金額</th></tr></thead><tbody>';
+    Object.keys(summary).sort().forEach(cat => {
+      const s = summary[cat];
+      html += `<tr><td>${cat}</td><td style="text-align:center;">${s.count}</td><td style="text-align:right;">${s.totalAmount}</td></tr>`;
+    });
+    html += '</tbody><tfoot><tr style="background:#f2f2f2; font-weight:bold;"><th colspan="2" style="text-align:right;">總計金額：</th><th style="text-align:right;"></th></tr></tfoot></table>';
+
+    // 2. 套利績效
+    html += '<h3 style="margin-top:20px;">⚖️ 套利績效分析 (同品項買賣)</h3>';
+    let arbitrageFound = false;
+    let arbitrageHtml = '<table id="swal-arbitrage-table" class="display swal-tight-table" style="width:100%; border-collapse: collapse;" border="1">';
+    arbitrageHtml += `
+      <thead><tr style="background:#f2f2f2;"><th>品項</th><th>套利成交量</th><th>獲利</th></tr></thead>
+      <tbody>`;
+
+    Object.keys(itemGroups).forEach(item => {
+      const group = itemGroups[item];
+      if (group.buys.length > 0 && group.sells.length > 0) {
+        arbitrageFound = true;
+        const totalBuyQty = group.buys.reduce((sum, b) => sum + b.qty, 0);
+        const totalBuyAmount = group.buys.reduce((sum, b) => sum + b.total, 0);
+        const totalSellQty = group.sells.reduce((sum, s) => sum + s.qty, 0);
+        const totalSellAmount = group.sells.reduce((sum, s) => sum + s.total, 0);
+        
+        // 套利計算：僅計算 買入與賣出 數量重合的部分
+        const matchedQty = Math.min(totalBuyQty, totalSellQty);
+        const avgBuyPrice = totalBuyAmount / totalBuyQty;
+        const avgSellPrice = totalSellAmount / totalSellQty;
+        const profit = Math.round(matchedQty * (avgSellPrice + avgBuyPrice));
+        
+        arbitrageHtml += `<tr>
+            <td>${item}</td>
+            <td style="text-align:center;">${matchedQty}</td>
+            <td style="text-align:right; font-weight:bold;">${profit}</td>
+        </tr>`;
+      }
+    });
+    arbitrageHtml += '</tbody><tfoot><tr style="background:#f2f2f2; font-weight:bold;"><th colspan="2" style="text-align:right;">總計獲利：</th><th style="text-align:right;"></th></tr></tfoot></table>';
+
+    if (!arbitrageFound) {
+      html += '<p>無符合的買賣套利紀錄</p>';
+    } else {
+      html += arbitrageHtml;
+    }
+
+    html += '</div>';
+
+    unsafeWindow.Swal.fire({
+      title: '交易分析摘要',
+      html: html,
+      width: '800px',
+      confirmButtonText: '關閉',
+      onOpen: () => {
+        const $ = unsafeWindow.$;
+        $('#swal-summary-table').DataTable({
+          paging: false,
+          searching: false,
+          info: false,
+          order: [[2, 'desc']],
+          columnDefs: [
+            { targets: 0, width: '50%' },
+            { targets: 1, width: '20%' },
+            {
+              targets: 2,
+              width: '30%',
+              render: (data) => {
+                const val = parseInt(data);
+                const color = val >= 0 ? 'red' : 'green';
+                return `<span style="color:${color}; font-weight:bold;">${val.toLocaleString()}</span>`;
+              }
+            }
+          ],
+          footerCallback: function (row, data, start, end, display) {
+            const api = this.api();
+            const total = api.column(2).data().reduce((a, b) => parseInt(a) + parseInt(b), 0);
+            const color = total >= 0 ? 'red' : 'green';
+            $(api.column(2).footer()).html(`<span style="color:${color}; font-weight:bold;">${total.toLocaleString()}</span>`);
+          }
+        });
+        if (arbitrageFound) {
+          $('#swal-arbitrage-table').DataTable({
+            paging: false,
+            searching: false,
+            info: false,
+            order: [[2, 'desc']],
+            columnDefs: [
+              { targets: 0, width: '50%' },
+              { targets: 1, width: '20%' },
+              {
+                targets: 2,
+                width: '30%',
+                render: (data) => {
+                  const val = parseInt(data);
+                  const color = val >= 0 ? 'red' : 'green';
+                  return `<span style="color:${color}; font-weight:bold;">${val.toLocaleString()}</span>`;
+                }
+              }
+            ],
+            footerCallback: function (row, data, start, end, display) {
+              const api = this.api();
+              const total = api.column(2).data().reduce((a, b) => parseInt(a) + parseInt(b), 0);
+              const color = total >= 0 ? 'red' : 'green';
+              $(api.column(2).footer()).html(`<span style="color:${color}; font-weight:bold;">${total.toLocaleString()}</span>`);
+            }
+          });
+        }
+      }
     });
   }
 
