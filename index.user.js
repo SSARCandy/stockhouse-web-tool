@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.5
+// @version      2.6
 // @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換
 // @author       ssarcandy
 // @license      MIT
@@ -138,17 +138,50 @@
   function initViewlogFixes() {
     if (!window.location.pathname.includes('viewlog.php')) return;
 
-    // 展開全部按鈕
-    const selector = 'button.dt-button[aria-controls="paper-table"]';
-    const condition = (el) => el.textContent.includes('下載成EXCEL檔');
+    // 1. 訊息表格：全部已讀 (展開並觸發 API)
+    waitForElement('#messagetable_filter', null, (target) => {
+      const readBtn = document.createElement('button');
+      readBtn.className = 'dt-button';
+      readBtn.innerHTML = '<span>全部已讀</span>';
+      readBtn.style.marginLeft = '5px';
+      readBtn.addEventListener('click', async () => {
+        const rows = document.querySelectorAll('#messagetable tbody tr[id]:not(.shown)');
+        if (rows.length === 0) return;
 
-    waitForElement(selector, condition, (excelBtn) => {
+        const btnSpan = readBtn.querySelector('span');
+        const originalText = btnSpan.textContent;
+        btnSpan.textContent = '讀取中...';
+        readBtn.disabled = true;
+
+        try {
+          for (const row of rows) {
+            row.querySelector('td.details-control')?.click();
+            await new Promise(r => setTimeout(r, 100));
+          }
+          new Notify({
+            status: 'success', title: '操作完成', text: `已處理 ${rows.length} 筆訊息`,
+            autoclose: true, autotimeout: 2000, position: 'x-center'
+          });
+        } finally {
+          btnSpan.textContent = originalText;
+          readBtn.disabled = false;
+        }
+      });
+      target.insertAdjacentElement('afterend', readBtn);
+    });
+
+    // 2. 其他表格 (如委託單)：展開全部
+    const excelSelector = 'button.dt-button[aria-controls="paper-table"]';
+    const excelCondition = (el) => el.textContent.includes('下載成EXCEL檔');
+    waitForElement(excelSelector, excelCondition, (excelBtn) => {
       const expandBtn = document.createElement('button');
       expandBtn.className = 'dt-button';
       expandBtn.innerHTML = '<span>展開全部</span>';
       expandBtn.style.marginLeft = '5px';
       expandBtn.addEventListener('click', () => {
-        document.querySelectorAll('td.details-control').forEach(td => td.click());
+        document.querySelectorAll('#paper-table td.details-control').forEach(td => {
+          if (!td.closest('tr').classList.contains('shown')) td.click();
+        });
       });
       excelBtn.insertAdjacentElement('afterend', expandBtn);
     });
