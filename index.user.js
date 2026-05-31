@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.9
+// @version      2.10
 // @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換、帳務交易摘要分析
 // @author       ssarcandy
 // @license      MIT
@@ -329,7 +329,7 @@
           footerCallback: function (row, data, start, end, display) {
             const api = this.api();
             const total = api.column(2).data().reduce((a, b) => parseInt(a) + parseInt(b), 0);
-            const color = val >= 0 ? 'green' : 'red';
+            const color = total >= 0 ? 'green' : 'red';
 
             $(api.column(2).footer()).html(`<span style="color:${color}; font-weight:bold;">${total.toLocaleString()}</span>`);
           }
@@ -356,7 +356,7 @@
             footerCallback: function (row, data, start, end, display) {
               const api = this.api();
               const total = api.column(2).data().reduce((a, b) => parseInt(a) + parseInt(b), 0);
-              const color = val >= 0 ? 'green' : 'red';
+              const color = total >= 0 ? 'green' : 'red';
 
               $(api.column(2).footer()).html(`<span style="color:${color}; font-weight:bold;">${total.toLocaleString()}</span>`);
             }
