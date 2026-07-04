@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Stockhouse 全能小幫手
 // @namespace    https://openuserjs.org/users/ssarcandy
-// @version      2.10
+// @version      2.11
 // @description  整合：非阻塞系統通知、新增「展開全部」按鈕、增加 1000 筆顯示選項、一鍵複製所有通知紀錄、子帳戶持股一鍵切換、帳務交易摘要分析
 // @author       ssarcandy
 // @license      MIT
@@ -126,7 +126,9 @@
 
   function initGlobalTableFixes() {
     // 新增 1000 筆選項
-    waitForElement('select', null, (select) => {
+    // 僅針對 DataTables 每頁筆數選單 (name 結尾為 _length)，
+    // 避免誤加到其他原生 <select>，例如超商取貨時段選單 (datetime-*)
+    waitForElement('select[name$="_length"]', null, (select) => {
       if (!select.querySelector('option[value="1000"]')) {
         const opt = document.createElement('option');
         opt.value = opt.textContent = '1000';
