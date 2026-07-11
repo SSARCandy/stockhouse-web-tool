@@ -278,8 +278,18 @@
       }
     });
 
+    // 現金進出 (存入帳戶 / 提款) — 非交易損益，需自總金額中排除以算出真實獲利
+    const sumByKeywords = (keywords) => Object.keys(summary)
+      .filter(cat => keywords.some(kw => cat.includes(kw)))
+      .reduce((acc, cat) => acc + summary[cat].totalAmount, 0);
+    const depositTotal = sumByKeywords(['存入', '存款']);   // 例如：存入帳戶
+    const withdrawTotal = sumByKeywords(['提款', '提出']);  // 例如：提款
+    // 總獲利 = 交易總金額 - 存入 + 提出 (以金額大小計，排除自有資金進出)
+    const netProfit = totalCategoryAmount - Math.abs(depositTotal) + Math.abs(withdrawTotal);
+
     const amountColor = totalCategoryAmount >= 0 ? '#2e7d32' : '#c62828';
     const profitColor = totalArbitrageProfit >= 0 ? '#2e7d32' : '#c62828';
+    const netProfitColor = netProfit >= 0 ? '#2e7d32' : '#c62828';
 
     // 格式化輸出 HTML
     let html = `
@@ -303,6 +313,11 @@
         <div class="swal-summary-card">
           <div class="label">💰 交易總金額</div>
           <div class="value" style="color:${amountColor};">${totalCategoryAmount.toLocaleString()}</div>
+        </div>
+        <div class="swal-summary-card" style="background:#eef6ff; border-color:#b6d4fe;">
+          <div class="label">🎯 總獲利</div>
+          <div class="value" style="color:${netProfitColor};">${netProfit.toLocaleString()}</div>
+          <div style="font-size:11px; color:#999; margin-top:4px;">交易總金額 − 存入 + 提出</div>
         </div>
         <div class="swal-summary-card">
           <div class="label">⚖️ 套利總獲利</div>
