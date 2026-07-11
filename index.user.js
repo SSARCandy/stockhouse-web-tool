@@ -244,15 +244,72 @@
       }
     });
 
+    // 預先計算各類別總金額
+    let totalCategoryAmount = 0;
+    Object.keys(summary).forEach(cat => {
+      totalCategoryAmount += summary[cat].totalAmount;
+    });
+
+    // 預先計算套利績效 (先算出各列與總獲利，才能把總和放在最上面)
+    let arbitrageFound = false;
+    let totalArbitrageProfit = 0;
+    let arbitrageRowsHtml = '';
+    Object.keys(itemGroups).forEach(item => {
+      const group = itemGroups[item];
+      if (group.buys.length > 0 && group.sells.length > 0) {
+        arbitrageFound = true;
+        const totalBuyQty = group.buys.reduce((sum, b) => sum + b.qty, 0);
+        const totalBuyAmount = group.buys.reduce((sum, b) => sum + b.total, 0);
+        const totalSellQty = group.sells.reduce((sum, s) => sum + s.qty, 0);
+        const totalSellAmount = group.sells.reduce((sum, s) => sum + s.total, 0);
+
+        // 套利計算：僅計算 買入與賣出 數量重合的部分
+        const matchedQty = Math.min(totalBuyQty, totalSellQty);
+        const avgBuyPrice = totalBuyAmount / totalBuyQty;
+        const avgSellPrice = totalSellAmount / totalSellQty;
+        const profit = Math.round(matchedQty * (avgSellPrice + avgBuyPrice));
+        totalArbitrageProfit += profit;
+
+        arbitrageRowsHtml += `<tr>
+            <td>${item}</td>
+            <td style="text-align:center;">${matchedQty}</td>
+            <td style="text-align:right; font-weight:bold;">${profit}</td>
+        </tr>`;
+      }
+    });
+
+    const amountColor = totalCategoryAmount >= 0 ? '#2e7d32' : '#c62828';
+    const profitColor = totalArbitrageProfit >= 0 ? '#2e7d32' : '#c62828';
+
     // 格式化輸出 HTML
     let html = `
       <style>
         .swal-tight-table td, .swal-tight-table th { padding: 4px 8px !important; line-height: 1.2 !important; font-size: 13px; }
         .swal-tight-table h3 { margin: 15px 0 10px 0; }
+        .swal-summary-cards { display: flex; gap: 12px; margin-bottom: 18px; }
+        .swal-summary-card {
+          flex: 1; background: #f8f9fa; border: 1px solid #e0e0e0; border-radius: 10px;
+          padding: 14px 12px; text-align: center;
+        }
+        .swal-summary-card .label { font-size: 13px; color: #666; margin-bottom: 6px; }
+        .swal-summary-card .value { font-size: 24px; font-weight: bold; line-height: 1.2; }
       </style>
       <div style="text-align: left; font-size: 14px; max-height: 600px; overflow-y: auto; padding: 5px;">
     `;
-    
+
+    // 0. 最上方總和摘要
+    html += `
+      <div class="swal-summary-cards">
+        <div class="swal-summary-card">
+          <div class="label">💰 交易總金額</div>
+          <div class="value" style="color:${amountColor};">${totalCategoryAmount.toLocaleString()}</div>
+        </div>
+        <div class="swal-summary-card">
+          <div class="label">⚖️ 套利總獲利</div>
+          <div class="value" style="color:${profitColor};">${arbitrageFound ? totalArbitrageProfit.toLocaleString() : '—'}</div>
+        </div>
+      </div>`;
+
     // 1. 各類別總結
     html += '<h3>📊 交易類別統計</h3>';
     html += '<table id="swal-summary-table" class="display swal-tight-table" style="width:100%; border-collapse: collapse;" border="1">';
@@ -265,40 +322,15 @@
 
     // 2. 套利績效
     html += '<h3 style="margin-top:20px;">⚖️ 套利績效分析 (同品項買賣)</h3>';
-    let arbitrageFound = false;
-    let arbitrageHtml = '<table id="swal-arbitrage-table" class="display swal-tight-table" style="width:100%; border-collapse: collapse;" border="1">';
-    arbitrageHtml += `
-      <thead><tr style="background:#f2f2f2;"><th>品項</th><th>套利成交量</th><th>獲利</th></tr></thead>
-      <tbody>`;
-
-    Object.keys(itemGroups).forEach(item => {
-      const group = itemGroups[item];
-      if (group.buys.length > 0 && group.sells.length > 0) {
-        arbitrageFound = true;
-        const totalBuyQty = group.buys.reduce((sum, b) => sum + b.qty, 0);
-        const totalBuyAmount = group.buys.reduce((sum, b) => sum + b.total, 0);
-        const totalSellQty = group.sells.reduce((sum, s) => sum + s.qty, 0);
-        const totalSellAmount = group.sells.reduce((sum, s) => sum + s.total, 0);
-        
-        // 套利計算：僅計算 買入與賣出 數量重合的部分
-        const matchedQty = Math.min(totalBuyQty, totalSellQty);
-        const avgBuyPrice = totalBuyAmount / totalBuyQty;
-        const avgSellPrice = totalSellAmount / totalSellQty;
-        const profit = Math.round(matchedQty * (avgSellPrice + avgBuyPrice));
-        
-        arbitrageHtml += `<tr>
-            <td>${item}</td>
-            <td style="text-align:center;">${matchedQty}</td>
-            <td style="text-align:right; font-weight:bold;">${profit}</td>
-        </tr>`;
-      }
-    });
-    arbitrageHtml += '</tbody><tfoot><tr style="background:#f2f2f2; font-weight:bold;"><th colspan="2" style="text-align:right;">總計獲利：</th><th style="text-align:right;"></th></tr></tfoot></table>';
-
     if (!arbitrageFound) {
       html += '<p>無符合的買賣套利紀錄</p>';
     } else {
-      html += arbitrageHtml;
+      html += '<table id="swal-arbitrage-table" class="display swal-tight-table" style="width:100%; border-collapse: collapse;" border="1">';
+      html += `
+      <thead><tr style="background:#f2f2f2;"><th>品項</th><th>套利成交量</th><th>獲利</th></tr></thead>
+      <tbody>`;
+      html += arbitrageRowsHtml;
+      html += '</tbody><tfoot><tr style="background:#f2f2f2; font-weight:bold;"><th colspan="2" style="text-align:right;">總計獲利：</th><th style="text-align:right;"></th></tr></tfoot></table>';
     }
 
     html += '</div>';
